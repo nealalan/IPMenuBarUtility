@@ -1,0 +1,832 @@
+// IP in menubar 4.2 Sourcecode
+// https://www.monkeybreadsoftware.de/Software/IPinmenubar.shtml
+/*
+This small application runs in the background and shows the current IP address of your Mac in the menu bar. There are options available to customize the appearance of the menu entry. The IP dddress is updated regulary. Switch on the Router option if you are behind a router or gateway. You can still see your local IP address in the menu.
+
+You can quit this application using either its menu or the Activity Monitor (see /Applications/Utilities folder).
+
+This application is freeware and provided as is.
+
+IP in menubar is an example of what you can do in Xojo using the MBS Plugins and their NSStatusItemMBS class.
+/*
+
+// A bunch of custom written classes required
+//
+
+Class App
+Inherits Application
+  // Properties
+  Dim c As clock
+  
+  Dim last As string
+ 
+  Protected Dim m As NSMenuMBS
+  
+  Protected Dim s As NSStatusItemMBS
+  
+  Dim downloadsocket As myhttpsocket
+  
+  Dim timemenuitem As NSmenuitemMBS
+  
+  Protected Dim submenu As NSMenuMBS
+  
+  Private Dim RouterMenu As NSMenuItemMBS
+  
+  Private Dim DisplayMenu As myCocoamenuitem
+  
+  Private Dim Display4 As myCocoamenuitem
+  
+  Private Dim Display3 As myCocoamenuitem
+  
+  Private Dim Display2 As myCocoamenuitem
+  
+  Private Dim Display1 As myCocoamenuitem
+  
+  Dim sc As MySCNetworkReachability
+  
+  Dim QuitMenu As MyCocoamenuitem
+  
+  Dim UpdateMenu As mycocoamenuitem
+  
+  Dim TextOptionMenu As myCocoamenuitem
+  
+  Dim VisitWebsiteMenu As mycocoamenuitem
+  
+  Private Dim CopyMenu As mycocoamenuitem
+  
+  Dim LastIP As string
+  
+  Dim LaunchMenu As myCocoamenuitem
+  
+  Dim LocalIPMenu As NSmenuitemMBS
+  
+  Dim LastLocalAddress As string
+  
+  Protected Dim FontOptionMenu As MyCocoamenuitem
+  
+  Dim ReallyNeedUpdate As boolean
+  
+  Dim VersionMenuItem As nsmenuitemMBS
+  
+  Protected Dim ImageOptionMenu As mycocoamenuitem
+  
+  Protected Dim ImageBWOptionMenu As mycocoamenuitem
+  
+  Dim URL As string
+  
+  
+  // Event implementations
+  Sub Open()
+    dim f as FolderItem
+    
+    dim period as integer
+    dim d as NSMenuItemMBS
+    
+    RegisterPlugins
+    
+    pref.Load
+    
+    dim behindRouter as Boolean=pref.behindRouter
+    
+    sc=new MySCNetworkReachability
+    if sc.CreateWithName("monkeybreadsoftware.de") then
+      period=1000*60*5 // update every 5 minutes just in case we miss events.
+    else
+      period=1000*30 // every 30 seconds as we have no events. (old Mac OS X?)
+    end if
+    
+    s=new NSStatusItemMBS
+    
+    // Create statusitem
+    
+    if s.CreateMenu=False then
+      MsgBox koldmacosversion
+      quit
+    end if
+    
+    s.HighlightMode=true
+    s.Title=kIP
+    
+    url="http://www.monkeybreadsoftware.info/cgi-bin/getip"+str(app.majorVersion)+Str(app.MinorVersion)+".cgi"
+    
+    'MsgBox url
+    
+    // create clock for updates
+    c=new clock
+    c.Period=period
+    c.mode=2
+    
+    // create a submenu to attach to the menu for "Display"
+    submenu=new NSMenuMBS
+    call submenu.CreateMenu
+    
+    // Create menu items for submenu
+    ImageOptionMenu=new MyCocoamenuitem
+    ImageOptionMenu.CreateMenuItem kCOlorIcon
+    ImageOptionMenu.tag=12
+    if pref.DisplayIconColor then
+      ImageOptionMenu.State=1
+    else
+      ImageOptionMenu.State=0
+    end if
+    submenu.AddItem ImageOptionMenu
+    
+    // Create menu items for submenu
+    ImageBWOptionMenu=new MyCocoamenuitem
+    ImageBWOptionMenu.CreateMenuItem kGrayIcon
+    ImageBWOptionMenu.tag=13
+    if pref.DisplayIconBW then
+      ImageBWOptionMenu.State=1
+    else
+      ImageBWOptionMenu.State=0
+    end if
+    submenu.AddItem ImageBWOptionMenu
+    
+    TextOptionMenu=new MyCocoamenuitem
+    TextOptionMenu.CreateMenuItem kTextIP
+    TextOptionMenu.tag=10
+    if pref.DisplayText then
+      TextOptionMenu.State=1
+    else
+      TextOptionMenu.State=0
+    end if
+    submenu.AddItem TextOptionMenu
+    
+    FontOptionMenu=new MyCocoamenuitem
+    FontOptionMenu.CreateMenuItem kUsesmallfont
+    FontOptionMenu.tag=11
+    if pref.SmallFont then
+      FontOptionMenu.State=1
+    else
+      FontOptionMenu.State=0
+    end if
+    submenu.AddItem FontOptionMenu
+    
+    d=new MyCocoamenuitem
+    d.CreateSeparator
+    submenu.AddItem d
+    
+    Display4=new MyCocoamenuitem
+    Display4.CreateMenuItem "aaa.bbb.ccc.ddd"
+    Display4.tag=20
+    submenu.AddItem Display4
+    
+    Display3=new MyCocoamenuitem
+    Display3.CreateMenuItem "bbb.ccc.ddd"
+    Display3.tag=21
+    submenu.AddItem Display3
+    
+    Display2=new MyCocoamenuitem
+    Display2.CreateMenuItem "ccc.ddd"
+    Display2.tag=22
+    submenu.AddItem Display2
+    
+    Display1=new MyCocoamenuitem
+    Display1.CreateMenuItem "ddd"
+    Display1.tag=23
+    submenu.AddItem Display1
+    
+    // create a menu to attach to the statusitem
+    m=new NSMenuMBS
+    call m.CreateMenu
+    
+    // Create menu items
+    VisitWebsiteMenu=new MyCocoamenuitem
+    VisitWebsiteMenu.CreateMenuItem kVisitWebsite
+    VisitWebsiteMenu.tag=2
+    m.AddItem VisitWebsiteMenu
+    
+    VersionMenuItem=new NSMenuItemMBS
+    VersionMenuItem.CreateMenuItem app.LongVersion
+    VersionMenuItem.Enabled=false
+    m.AddItem VersionMenuItem
+    
+    d=new NSMenuItemMBS
+    d.CreateSeparator
+    m.AddItem d
+    
+    UpdateMenu=new MyCocoamenuitem
+    UpdateMenu.CreateMenuItem kUpdateNow
+    UpdateMenu.tag=3
+    m.AddItem UpdateMenu
+    
+    timemenuitem=new NSMenuItemMBS
+    timemenuitem.CreateMenuItem "..."
+    timemenuitem.Enabled=False
+    m.AddItem timemenuitem
+    
+    LocalIPMenu=new NSMenuItemMBS
+    LocalIPMenu.CreateMenuItem "..."
+    LocalIPMenu.Enabled=False
+    m.AddItem LocalIPMenu
+    
+    d=new NSMenuItemMBS
+    d.CreateSeparator
+    m.AddItem d
+    
+    CopyMenu=new MyCocoamenuitem
+    CopyMenu.CreateMenuItem kCopyIP
+    CopyMenu.tag=7
+    m.AddItem CopyMenu
+    
+    d=new NSMenuItemMBS
+    d.CreateSeparator
+    m.AddItem d
+    
+    DisplayMenu=new MyCocoamenuitem
+    DisplayMenu.CreateMenuItem kDisplay
+    DisplayMenu.Submenu=submenu
+    DisplayMenu.tag=5
+    m.AddItem DisplayMenu
+    
+    RouterMenu=new MyCocoamenuitem
+    RouterMenu.CreateMenuItem kRouter
+    RouterMenu.tag=6
+    if behindRouter then
+      RouterMenu.State=1
+    else
+      RouterMenu.State=0
+    end if
+    m.AddItem RouterMenu
+    
+    d=new NSMenuItemMBS
+    d.CreateSeparator
+    m.AddItem d
+    
+    QuitMenu=new MyCocoamenuitem
+    QuitMenu.CreateMenuItem kQuit
+    QuitMenu.tag=1
+    m.AddItem QuitMenu
+    
+    // attach menu
+    s.Menu=m
+    
+    SetDisplayLenMenu pref.DisplayLen
+    
+    updateImage
+    
+  End Sub
+  Sub Close()
+    if s<>nil then
+      s.Close
+      'DelayMBS 0.2 // wait for events to flush
+      s=nil
+    end if
+  End Sub
+  
+  // Methods
+  Sub update()
+    dim sock as TCPSocket
+    dim t as string
+    
+    if s<>Nil then
+      sock=new TCPSocket
+      t=sock.LocalAddress
+      if t<>lastLocalAddress then
+        LastLocalAddress=t
+        LocalIPMenu.Title=kLocalIP+t
+      end if
+      
+      if pref.behindrouter then
+        if sc.reachable then
+          timemenuitem.Title=kWaitingforRouter
+          StartDownload
+        else
+          UpdateLocalAddress true
+        end if
+      else
+        UpdateLocalAddress false
+      end if
+    end if
+  End Sub
+  Sub startdownload()
+    
+    downloadsocket=new myhttpsocket
+    downloadsocket.SetRequestHeader "User-Agent", app.LongVersion
+    downloadsocket.Get url
+    
+  End Sub
+  Function short(s as string) As string
+    dim n as integer
+    dim t as string
+    dim p,i as integer
+    
+    // removes pref.DisplayLen items from the IP
+    
+    n=pref.DisplayLen
+    
+    if n>3 then
+      n=3
+    end if
+    
+    if n<0 then
+      n=0
+    end if
+    
+    t=s
+    for i=1 to n
+      p=instr(t,".")
+      if p>0 then
+        t=mid(t,p+1)
+      end if
+    next
+    
+    Return t
+  End Function
+  Sub ChangeRouter()
+    dim behindrouter as Boolean
+    
+    // read
+    behindrouter=pref.behindRouter
+    
+    // change
+    behindrouter=not behindrouter
+    
+    // write
+    pref.behindRouter=behindrouter
+    
+    // update menu
+    if behindrouter then
+      RouterMenu.State=1
+    else
+      RouterMenu.State=0
+    end if
+    
+    // update others
+    update
+    UpdateDisplayMenu
+    
+  End Sub
+  Sub UpdateTimemenu()
+    dim d as date
+    
+    d=new date
+    timemenuitem.Title=kGotLastIPAt+d.LongTime
+    
+  End Sub
+  Sub UpdateLocalAddress(onerror as boolean)
+    dim sock as TCPSocket
+    
+    sock=new TCPSocket
+    
+    ShowNewIP sock.LocalAddress,onerror
+  End Sub
+  Sub SetDisplayLenMenu(n as integer)
+    // Update all the states of the display submenu stuff
+    
+    if pref.Displaylen=0 then
+      Display4.State=1
+    else
+      Display4.State=0
+    end if
+    
+    if pref.Displaylen=1 then
+      Display3.State=1
+    else
+      Display3.State=0
+    end if
+    
+    if pref.Displaylen=2 then
+      Display2.State=1
+    else
+      Display2.State=0
+    end if
+    
+    if pref.Displaylen=3 then
+      Display1.State=1
+    else
+      Display1.State=0
+    end if
+    
+  End Sub
+  Sub CopyIP()
+    dim c as Clipboard
+    
+    c=new Clipboard
+    c.SetText lastip
+    c.Close
+    
+  End Sub
+  Sub LaunchIP()
+    ShowURL "http://"+LastIP
+  End Sub
+  Sub ShowNewIP(l as string, onerror as boolean)
+    dim t as String
+    dim b as Boolean
+    dim st as string
+    dim rtf as string
+    dim ok as Boolean
+    
+    if pref.DisplayText then
+      t="IP "
+    else
+      t=""
+    end if
+    
+    LastIP=l
+    
+    if l="0.0.0.0" or l="" then
+      t=kNotConnected
+    else
+      if onerror then
+        t=t+l+"!"
+      else
+        t=t+short(l)
+      end if
+    end if
+    
+    if t="" then
+      t="?"
+    end if
+    
+    if t<>last or ReallyNeedUpdate then
+      ReallyNeedUpdate=False
+      
+      ok=false
+      if pref.SmallFont then
+        st=""
+        st=st+"{\rtf1\mac\ansicpg10000\cocoartf102"+chr(13)
+        st=st+"{\fonttbl\f0\fnil\fcharset77 Verdana;}"+chr(13)
+        st=st+"{\colortbl;\red255\green255\blue255;}"+chr(13)
+        st=st+"\paperw11900\paperh16840\margl1440\margr1440\vieww9020\viewh7500\viewkind0"+chr(13)
+        st=st+"\pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\ql\qnatural"+chr(13)
+        st=st+""+chr(13)
+        st=st+"\f0\fs20 \cf0 "+t+"}"
+        
+        rtf=st
+        
+        dim a as new NSAttributedStringMBS
+        
+        if a.initWithRTF(rtf) then
+          s.attributedTitle=a
+          ok=true
+        end if
+      end if
+      
+      if ok=false then
+        s.Title=t
+      end if
+      
+      UpdateTimemenu
+      last=t
+    end if
+  End Sub
+  Sub updateImage()
+    static imgColor as NSImageMBS
+    static imgBlack as NSImageMBS
+    
+    if pref.DisplayIconColor then
+      if imgColor=nil then
+        imgColor=new NSImageMBS(MenuImage, MenuMask)
+      end if
+      
+      s.image=imgColor
+    elseif pref.DisplayIconBW then
+      if imgBlack=nil then
+        imgBlack=new NSImageMBS(MenuGray, MenuGray)
+      end if
+      
+      s.image=imgBlack
+    else
+      s.image=nil
+    end if
+    
+    if pref.DisplayIconColor then
+      ImageOptionMenu.State=1
+    else
+      ImageOptionMenu.State=0
+    end if
+    if pref.DisplayIconBW then
+      ImageBWOptionMenu.State=1
+    else
+      ImageBWOptionMenu.State=0
+    end if
+    
+    
+  End Sub
+  Sub UpdateDisplayMenu()
+    dim behindRouter as Boolean=pref.behindRouter
+    
+    Display1.Enabled=not behindrouter
+    Display2.Enabled=not behindrouter
+    Display3.Enabled=not behindrouter
+    Display4.Enabled=not behindrouter
+    
+  End Sub
+End Class
+
+Class Clock
+Inherits Timer
+  // Event implementations
+  Sub Action()
+    app.update
+  End Sub
+End Class
+
+Class MyCocoamenuitem
+Inherits NSMenuItemMBS
+  // Event implementations
+  Sub Action()
+    Select case tag
+    case 1
+      quit
+    case 2
+      ShowURL "http://www.monkeybreadsoftware.de"
+    case 3
+      app.update
+    case 6
+      app.ChangeRouter
+    case 7
+      app.CopyIP
+    case 8
+      app.LaunchIP
+    case 10
+      pref.DisplayText=not pref.DisplayText
+      if pref.DisplayText then
+        me.State=1
+      else
+        me.State=0
+      end if
+      app.update
+    case 11
+      pref.SmallFont=not pref.SmallFont
+      if pref.SmallFont then
+        me.State=1
+      else
+        me.State=0
+      end if
+      app.ReallyNeedUpdate=true
+      app.update
+    case 12
+      pref.DisplayIconColor=not pref.DisplayIconColor
+      pref.DisplayIconBW=False
+      
+      app.updateImage
+    case 13
+      pref.DisplayIconBW=not pref.DisplayIconBW
+      pref.DisplayIconColor=false
+      
+      app.updateImage
+    case 20
+      SetDisplayLen 0
+    case 21
+      SetDisplayLen 1
+    case 22
+      SetDisplayLen 2
+    case 23
+      SetDisplayLen 3
+    end Select
+  End Sub
+  
+  // Methods
+  Sub SetDisplayLen(n as integer)
+    pref.Displaylen=n
+    app.SetDisplayLenMenu n
+    
+    app.update
+    app.UpdateDisplayMenu
+    
+  End Sub
+End Class
+
+Module Pref
+  // Properties
+  Private Dim myBehindRouter As boolean
+  
+  
+  
+  Private Dim myDisplayText As boolean
+  
+  
+  
+  Private Dim myDisplayLen As integer
+  
+  
+  
+  Private Dim mySmallFont As boolean
+  
+  
+  
+  Private Dim myDisplayIconColor As boolean
+  
+  
+  Private Dim myDisplayIconBW As boolean
+  
+  
+  
+  // Methods
+  Protected Function DisplayLen() As integer
+    Return myDisplayLen
+  End Function
+  Protected Sub DisplayLen(assigns n as integer)
+    dim key as CFStringMBS
+    dim value as CFObjectMBS
+    
+    myDisplayLen=n
+    
+    key=NewCFStringMBS("DisplayLen")
+    value=NewCFNumberMBSInteger(n)
+    
+    Save key,value
+    
+  End Sub
+  Protected Sub DisplayText(assigns b as boolean)
+    dim key as CFStringMBS
+    dim value as CFObjectMBS
+    
+    myDisplayText=b
+    
+    key=NewCFStringMBS("DisplayText")
+    value=NewCFBooleanMBS(b)
+    
+    Save key,value
+    
+  End Sub
+  Protected Function DisplayText() As boolean
+    Return myDisplayText
+  End Function
+  Protected Function behindRouter() As boolean
+    Return myBehindRouter
+  End Function
+  Protected Sub behindRouter(assigns b as boolean)
+    dim key as CFStringMBS
+    dim value as CFObjectMBS
+    
+    myBehindRouter=b
+    
+    key=NewCFStringMBS("BehindRouter")
+    value=NewCFBooleanMBS(b)
+    
+    Save key,value
+    
+  End Sub
+  Protected Sub Load()
+    dim p as CFPreferencesMBS
+    dim o as CFObjectMBS
+    dim b as CFBooleanMBS
+    dim n as CFNumberMBS
+    
+    p=new CFPreferencesMBS
+    
+    o=p.CopyAppValue(NewCFStringMBS("BehindRouter"),p.kCFPreferencesCurrentApplication)
+    if o isa CFBooleanMBS then
+      b=CFBooleanMBS(o)
+      if b<>nil then
+        myBehindRouter= b.Value
+      end if
+    end if
+    
+    o=p.CopyAppValue(NewCFStringMBS("SmallFont"),p.kCFPreferencesCurrentApplication)
+    if o isa CFBooleanMBS then
+      b=CFBooleanMBS(o)
+      if b<>nil then
+        mySmallFont= b.Value
+      end if
+    end if
+    
+    o=p.CopyAppValue(NewCFStringMBS("DisplayLen"),p.kCFPreferencesCurrentApplication)
+    if o isa CFNumberMBS then
+      n=CFNumberMBS(o)
+      if n<>nil then
+        myDisplayLen= n.integerValue
+      end if
+    end if
+    
+    o=p.CopyAppValue(NewCFStringMBS("DisplayText"),p.kCFPreferencesCurrentApplication)
+    if o isa CFBooleanMBS then
+      b=CFBooleanMBS(o)
+      if b<>nil then
+        myDisplayText= b.Value
+      end if
+    end if
+    
+    o=p.CopyAppValue(NewCFStringMBS("DisplayIconColor"),p.kCFPreferencesCurrentApplication)
+    if o isa CFBooleanMBS then
+      b=CFBooleanMBS(o)
+      if b<>nil then
+        myDisplayIconColor= b.Value
+      end if
+    end if
+    
+    o=p.CopyAppValue(NewCFStringMBS("DisplayIconBW"),p.kCFPreferencesCurrentApplication)
+    if o isa CFBooleanMBS then
+      b=CFBooleanMBS(o)
+      if b<>nil then
+        myDisplayIconBW= b.Value
+      end if
+    end if
+    
+    Exception
+    
+  End Sub
+  Private Sub Save(key as CFStringMBS, value as CFObjectMBS)
+    dim p as CFPreferencesMBS
+    
+    p=new CFPreferencesMBS
+    
+    p.SetAppValue key,value,p.kCFPreferencesCurrentApplication
+    
+    if p.AppSynchronize(p.kCFPreferencesCurrentApplication)  then
+    end if
+  End Sub
+  Protected Function SmallFont() As boolean
+    Return mySmallFont
+  End Function
+  Protected Sub SmallFont(assigns b as boolean)
+    dim key as CFStringMBS
+    dim value as CFObjectMBS
+    
+    mySmallFont=b
+    
+    key=NewCFStringMBS("SmallFont")
+    value=NewCFBooleanMBS(b)
+    
+    Save key,value
+    
+  End Sub
+  Protected Function DisplayIconColor() As boolean
+    Return myDisplayIconColor
+    
+    
+  End Function
+  Protected Sub DisplayIconColor(assigns b as boolean)
+    dim key as CFStringMBS
+    dim value as CFObjectMBS
+    
+    myDisplayIconColor=b
+    
+    key=NewCFStringMBS("DisplayIconColor")
+    value=NewCFBooleanMBS(b)
+    
+    Save key,value
+    
+  End Sub
+  Protected Sub DisplayIconBW(assigns b as boolean)
+    dim key as CFStringMBS
+    dim value as CFObjectMBS
+    
+    myDisplayIconBW=b
+    
+    key=NewCFStringMBS("DisplayIconBW")
+    value=NewCFBooleanMBS(b)
+    
+    Save key,value
+    
+  End Sub
+  Protected Function DisplayIconBW() As boolean
+    Return myDisplayIconBW
+    
+  End Function
+End Module
+
+Class MySCNetworkReachability
+Inherits SCNetworkReachabilityMBS
+  // Event implementations
+  Sub Changed(flags as integer)
+    app.update
+  End Sub
+  
+  // Methods
+  Function Reachable() As boolean
+    const kSCNetworkFlagsReachable=2
+    
+    dim reachable as Boolean
+    
+    reachable=BitwiseAnd(me.flags,kSCNetworkFlagsReachable)<>0
+    
+    Return reachable
+  End Function
+End Class
+
+Class myhttpsocket
+Inherits HTTPSOcket
+  // Event implementations
+  Sub PageReceived(url as string, httpStatus as integer, headers as internetHeaders, content as string)
+    
+    'MsgBox content
+    
+    app.lastip=content
+    
+    app.ShowNewIP content,false
+  End Sub
+End Class
+
+Module Localization
+  // Constants
+  Const koldmacosversion = Ihre Mac OS X version is zu alt.
+  Const kIP = IP
+  Const kColorIcon = Farbiges IP Ikon
+  Const kGrayIcon = Graues IP Ikon
+  Const kTextIP = IP Text
+  Const kUsesmallfont = Kleine Schrift
+  Const kVisitWebsite = Webseite besuchen
+  Const kCopyIP = IP-Adresse kopieren
+  Const kDisplay = Anzeige
+  Const kRouter = Router
+  Const kQuit = Beenden
+  Const kUpdateNow = Aktualisieren
+  Const kNotConnected = Nicht verbunden!
+  Const kLocalIP = Lokale IP:
+  Const kWaitingForRouter = Warte auf Router...
+  Const kGotLastIPAt = Letzte IP von
+End Module
